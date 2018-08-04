@@ -32,6 +32,10 @@ func main() {
 			Action:    execCommand,
 			Flags: []cli.Flag{
 				cli.BoolFlag{
+					Name:  "quiet, q",
+					Usage: "Do not display output from commands",
+				},
+				cli.BoolFlag{
 					Name:  "input, i",
 					Usage: "Use standard input to work with a list of items by line: note the whole file is read in immediately, if -c is supplied, will use the largest value",
 				},
@@ -51,14 +55,12 @@ func main() {
 }
 
 func runN(items []string, count uint, fun func(tid uint, item string) error) error {
-	if uint(len(items)) != count {
-		if count == 0 {
-			count = uint(len(items))
-		} else {
-			newItems := make([]string, count)
-			copy(newItems, items)
-			items = newItems
-		}
+	if uint(len(items)) > count {
+		count = uint(len(items))
+	} else {
+		newItems := make([]string, count)
+		copy(newItems, items)
+		items = newItems
 	}
 
 	errChan := make(chan error, count)
@@ -122,6 +124,11 @@ func execCommand(ctx *cli.Context) error {
 		}
 
 		input = strings.Split(string(content), "\n")
+
+		// catch trailing newline
+		if input[len(input)-1] == "" {
+			input = input[:len(input)-1]
+		}
 	}
 
 	count := ctx.Uint("count")
@@ -140,18 +147,21 @@ func execCommand(ctx *cli.Context) error {
 		}
 
 		cmd := exec.Command(first, args...)
-		outPipe, err := cmd.StdoutPipe()
-		if err != nil {
-			return errors.Wrap(err, "setting up stdout")
-		}
 
-		errPipe, err := cmd.StderrPipe()
-		if err != nil {
-			return errors.Wrap(err, "setting up stderr")
-		}
+		if !ctx.Bool("quiet") {
+			outPipe, err := cmd.StdoutPipe()
+			if err != nil {
+				return errors.Wrap(err, "setting up stdout")
+			}
 
-		go io.Copy(os.Stdout, outPipe)
-		go io.Copy(os.Stderr, errPipe)
+			errPipe, err := cmd.StderrPipe()
+			if err != nil {
+				return errors.Wrap(err, "setting up stderr")
+			}
+
+			go io.Copy(os.Stdout, outPipe)
+			go io.Copy(os.Stderr, errPipe)
+		}
 
 		if err := cmd.Run(); err != nil {
 			return errors.Wrapf(err, "while running %v %v", first, args)
