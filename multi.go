@@ -148,6 +148,21 @@ func format(fmtstr string, tid uint, item string) string {
 	return retval
 }
 
+func readLines(f *os.File) ([]string, error) {
+	content, err := ioutil.ReadAll(f)
+	if err != nil {
+		return nil, errors.Wrap(err, "reading i/o")
+	}
+
+	input := strings.Split(string(content), "\n")
+
+	// catch trailing newline
+	if input[len(input)-1] == "" {
+		input = input[:len(input)-1]
+	}
+	return input, nil
+}
+
 func execCommand(ctx *cli.Context) error {
 	if len(ctx.Args()) == 0 {
 		return errors.New("must supply a command to run")
@@ -156,16 +171,9 @@ func execCommand(ctx *cli.Context) error {
 	var input []string
 
 	if ctx.Bool("input") {
-		content, err := ioutil.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-
-		input = strings.Split(string(content), "\n")
-
-		// catch trailing newline
-		if input[len(input)-1] == "" {
-			input = input[:len(input)-1]
+		var err error
+		if input, err = readLines(os.Stdin); err != nil {
+			return errors.Wrap(err, "could not read from stdin")
 		}
 	}
 
@@ -210,8 +218,30 @@ func execCommand(ctx *cli.Context) error {
 }
 
 func sshCommand(ctx *cli.Context) error {
-	if len(ctx.Args()) == 0 {
-		return errors.New("must supply a command to run")
+	if len(ctx.Args()) < 2 {
+		return errors.New("must supply a host list file and command to run")
+	}
+
+	listFile := ctx.Args()[0]
+	args := ctx.Args()[1:]
+
+	f, err := os.Open(listFile)
+	if err != nil {
+		return errors.Wrap(err, "could not open host list file")
+	}
+
+	hosts, err := readLines(f)
+	if err != nil {
+		errors.Wrap(err, "could not read hosts file")
+	}
+
+	var input []string
+
+	if ctx.Bool("input") {
+		var err error
+		if input, err = readLines(os.Stdin); err != nil {
+			return errors.Wrap(err, "while reading from stdin")
+		}
 	}
 
 	auths := []ssh.AuthMethod{}
@@ -255,32 +285,41 @@ func sshCommand(ctx *cli.Context) error {
 		Auth:            auths,
 	}
 
-	// Connect to the remote server and perform the SSH handshake.
-	client, err := ssh.Dial("tcp", "localhost:22", cc)
-	if err != nil {
-		return errors.Wrap(err, "unable to connect")
-	}
-	defer client.Close()
+	count := ctx.Uint("count")
 
-	s, err := client.NewSession()
-	if err != nil {
-		return errors.Wrap(err, "establishing session")
-	}
-
-	if !ctx.Bool("quiet") {
-		outPipe, err := s.StdoutPipe()
-		if err != nil {
-			return errors.Wrap(err, "connecting to stdout")
+	return runN(input, count*uint(len(hosts)), func(tid uint, item string) error {
+		// Connect to the remote server and perform the SSH handshake.
+		host := hosts[tid/count]
+		if !strings.Contains(host, ":") {
+			host += ":22"
 		}
 
-		errPipe, err := s.StderrPipe()
+		client, err := ssh.Dial("tcp", host, cc)
 		if err != nil {
-			return errors.Wrap(err, "connecting to stderr")
+			return errors.Wrap(err, "unable to connect")
+		}
+		defer client.Close()
+
+		s, err := client.NewSession()
+		if err != nil {
+			return errors.Wrap(err, "establishing session")
 		}
 
-		go io.Copy(os.Stdout, outPipe)
-		go io.Copy(os.Stdout, errPipe)
-	}
+		if !ctx.Bool("quiet") {
+			outPipe, err := s.StdoutPipe()
+			if err != nil {
+				return errors.Wrap(err, "connecting to stdout")
+			}
 
-	return s.Run(strings.Join(ctx.Args(), " "))
+			errPipe, err := s.StderrPipe()
+			if err != nil {
+				return errors.Wrap(err, "connecting to stderr")
+			}
+
+			go io.Copy(os.Stdout, outPipe)
+			go io.Copy(os.Stdout, errPipe)
+		}
+
+		return s.Run(format(strings.Join(args, " "), tid, item))
+	})
 }
