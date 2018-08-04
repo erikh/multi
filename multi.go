@@ -21,6 +21,22 @@ const (
 	Version = "1.0.0"
 )
 
+var commonFlags = []cli.Flag{
+	cli.BoolFlag{
+		Name:  "quiet, q",
+		Usage: "Do not display output from commands",
+	},
+	cli.BoolFlag{
+		Name:  "input, i",
+		Usage: "Use standard input to work with a list of items by line: note the whole file is read in immediately, if -c is supplied, will use the largest value",
+	},
+	cli.UintFlag{
+		Name:  "count, c",
+		Usage: "Perform count number of items; if supplied with -i, will use the largest value",
+		Value: 1,
+	},
+}
+
 func main() {
 	app := cli.NewApp()
 
@@ -33,7 +49,7 @@ func main() {
 			ArgsUsage: "-- [ host list file ] [ command ]",
 			Usage:     "Execute a command in parallel over ssh; the host list file is a newline-delimited list of host:port pairs (22 is default)",
 			Action:    sshCommand,
-			Flags: []cli.Flag{
+			Flags: append([]cli.Flag{
 				cli.StringFlag{
 					Name:  "username, u",
 					Usage: "Username to connect as",
@@ -44,14 +60,14 @@ func main() {
 					Usage: "password to connect with, if any",
 				},
 				cli.StringFlag{
-					Name:  "identity, i",
+					Name:  "identity, d",
 					Usage: "identity file to connect with",
 				},
 				cli.BoolFlag{
 					Name:  "no-agent, n",
 					Usage: "Do not attempt to use a ssh-agent",
 				},
-			},
+			}, commonFlags...),
 		},
 		cli.Command{
 			Name:      "exec",
@@ -59,21 +75,7 @@ func main() {
 			Usage:     "Execute a local command in parallel",
 			ArgsUsage: "-- [ command ]",
 			Action:    execCommand,
-			Flags: []cli.Flag{
-				cli.BoolFlag{
-					Name:  "quiet, q",
-					Usage: "Do not display output from commands",
-				},
-				cli.BoolFlag{
-					Name:  "input, i",
-					Usage: "Use standard input to work with a list of items by line: note the whole file is read in immediately, if -c is supplied, will use the largest value",
-				},
-				cli.UintFlag{
-					Name:  "count, c",
-					Usage: "Perform count number of items; if supplied with -i, will use the largest value",
-					Value: 1,
-				},
-			},
+			Flags:     commonFlags,
 		},
 	}
 
@@ -205,5 +207,9 @@ func execCommand(ctx *cli.Context) error {
 }
 
 func sshCommand(ctx *cli.Context) error {
+	if len(ctx.Args()) == 0 {
+		return errors.New("must supply a command to run")
+	}
+
 	return nil
 }
