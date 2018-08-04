@@ -70,10 +70,6 @@ func main() {
 					Name:  "no-agent, n",
 					Usage: "Do not attempt to use a ssh-agent",
 				},
-				cli.BoolFlag{
-					Name:  "use-host-keys, k",
-					Usage: "Default *off* for convenience; when on, uses host keys to ensure connection security over reliability",
-				},
 			}, commonFlags...),
 		},
 		cli.Command{
@@ -238,7 +234,7 @@ func sshCommand(ctx *cli.Context) error {
 		auths = append(auths, ssh.PublicKeys(signer))
 	}
 
-	if len(auths) == 0 && os.Getenv("SSH_AUTH_SOCK") != "" {
+	if len(auths) == 0 || (os.Getenv("SSH_AUTH_SOCK") != "" && !ctx.Bool("no-agent")) {
 		conn, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
 		if err != nil {
 			return errors.Wrap(err, "connecting to ssh agent")
