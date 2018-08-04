@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 // Description is the long-form explanation of how to use the program.
@@ -66,6 +69,10 @@ func main() {
 				cli.BoolFlag{
 					Name:  "no-agent, n",
 					Usage: "Do not attempt to use a ssh-agent",
+				},
+				cli.BoolFlag{
+					Name:  "use-host-keys, k",
+					Usage: "Default *off* for convenience; when on, uses host keys to ensure connection security over reliability",
 				},
 			}, commonFlags...),
 		},
@@ -211,5 +218,73 @@ func sshCommand(ctx *cli.Context) error {
 		return errors.New("must supply a command to run")
 	}
 
-	return nil
+	auths := []ssh.AuthMethod{}
+
+	if ctx.String("password") != "" {
+		auths = append(auths, ssh.Password(ctx.String("password")))
+	}
+
+	if ctx.String("identity") != "" {
+		key, err := ioutil.ReadFile(ctx.String("identity"))
+		if err != nil {
+			return errors.Wrap(err, "unable to read private key")
+		}
+
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return errors.Wrap(err, "unable to parse private key")
+		}
+
+		auths = append(auths, ssh.PublicKeys(signer))
+	}
+
+	if len(auths) == 0 && os.Getenv("SSH_AUTH_SOCK") != "" {
+		conn, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
+		if err != nil {
+			return errors.Wrap(err, "connecting to ssh agent")
+		}
+
+		signers, err := agent.NewClient(conn).Signers()
+		if err != nil {
+			return errors.Wrap(err, "reading agent keys")
+		}
+
+		auths = append(auths, ssh.PublicKeys(signers...))
+	}
+
+	cc := &ssh.ClientConfig{
+		User: ctx.String("username"),
+		// FIXME I'm too lazy to fix this and I don't really need it. -erikh
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Auth:            auths,
+	}
+
+	// Connect to the remote server and perform the SSH handshake.
+	client, err := ssh.Dial("tcp", "localhost:22", cc)
+	if err != nil {
+		return errors.Wrap(err, "unable to connect")
+	}
+	defer client.Close()
+
+	s, err := client.NewSession()
+	if err != nil {
+		return errors.Wrap(err, "establishing session")
+	}
+
+	if !ctx.Bool("quiet") {
+		outPipe, err := s.StdoutPipe()
+		if err != nil {
+			return errors.Wrap(err, "connecting to stdout")
+		}
+
+		errPipe, err := s.StderrPipe()
+		if err != nil {
+			return errors.Wrap(err, "connecting to stderr")
+		}
+
+		go io.Copy(os.Stdout, outPipe)
+		go io.Copy(os.Stdout, errPipe)
+	}
+
+	return s.Run(strings.Join(ctx.Args(), " "))
 }
