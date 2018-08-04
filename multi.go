@@ -12,6 +12,10 @@ import (
 	"github.com/urfave/cli"
 )
 
+// Description is the long-form explanation of how to use the program.
+const Description = `
+`
+
 const (
 	// Version is the version of the program.
 	Version = "1.0.0"
@@ -21,14 +25,19 @@ func main() {
 	app := cli.NewApp()
 
 	app.Version = Version
+
 	app.Commands = []cli.Command{
 		cli.Command{
 			Name:      "ssh",
 			ShortName: "s",
+			Usage:     "Execute a command in parallel over ssh",
+			Action:    sshCommand,
+			Flags:     []cli.Flag{},
 		},
 		cli.Command{
 			Name:      "exec",
 			ShortName: "e",
+			Usage:     "Execute a local command in parallel",
 			Action:    execCommand,
 			Flags: []cli.Flag{
 				cli.BoolFlag{
@@ -49,7 +58,7 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, errors.Wrap(err, "runtime error").Error())
+		fmt.Fprintf(os.Stderr, errors.Wrap(err, "runtime error (try --help)").Error()+"\n")
 		os.Exit(1)
 	}
 }
@@ -115,6 +124,10 @@ func format(fmtstr string, tid uint, item string) string {
 }
 
 func execCommand(ctx *cli.Context) error {
+	if len(ctx.Args()) == 0 {
+		return errors.New("must supply a command to run")
+	}
+
 	var input []string
 
 	if ctx.Bool("input") {
@@ -169,4 +182,8 @@ func execCommand(ctx *cli.Context) error {
 
 		return nil
 	})
+}
+
+func sshCommand(ctx *cli.Context) error {
+	return nil
 }
