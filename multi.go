@@ -30,14 +30,34 @@ func main() {
 		cli.Command{
 			Name:      "ssh",
 			ShortName: "s",
-			Usage:     "Execute a command in parallel over ssh",
+			ArgsUsage: "-- [ host list file ] [ command ]",
+			Usage:     "Execute a command in parallel over ssh; the host list file is a newline-delimited list of host:port pairs (22 is default)",
 			Action:    sshCommand,
-			Flags:     []cli.Flag{},
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "username, u",
+					Usage: "Username to connect as",
+					Value: os.Getenv("USER"),
+				},
+				cli.StringFlag{
+					Name:  "password, p",
+					Usage: "password to connect with, if any",
+				},
+				cli.StringFlag{
+					Name:  "identity, i",
+					Usage: "identity file to connect with",
+				},
+				cli.BoolFlag{
+					Name:  "no-agent, n",
+					Usage: "Do not attempt to use a ssh-agent",
+				},
+			},
 		},
 		cli.Command{
 			Name:      "exec",
 			ShortName: "e",
 			Usage:     "Execute a local command in parallel",
+			ArgsUsage: "-- [ command ]",
 			Action:    execCommand,
 			Flags: []cli.Flag{
 				cli.BoolFlag{
