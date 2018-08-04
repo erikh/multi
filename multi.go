@@ -88,7 +88,7 @@ func main() {
 	}
 }
 
-func runN(items []string, count uint, fun func(tid uint, item string) error) error {
+func runN(items []string, count uint, fun func(tid uint, item string) error) []error {
 	if uint(len(items)) > count {
 		count = uint(len(items))
 	} else {
@@ -104,15 +104,27 @@ func runN(items []string, count uint, fun func(tid uint, item string) error) err
 		}(i, items[i])
 	}
 
-	var outerErr error
+	var outerErrs []error
 
 	for i := uint(0); i < count; i++ {
 		if err := <-errChan; err != nil {
-			outerErr = err
+			outerErrs = append(outerErrs, err)
 		}
 	}
 
-	return outerErr
+	return outerErrs
+}
+
+func processErrors(errs []error) error {
+	for _, err := range errs {
+		fmt.Fprintf(os.Stderr, err.Error()+"\n")
+	}
+
+	if len(errs) > 0 {
+		return errors.New("some commands had errors")
+	}
+
+	return nil
 }
 
 func format(fmtstr string, tid uint, item string) string {
@@ -179,7 +191,7 @@ func execCommand(ctx *cli.Context) error {
 
 	count := ctx.Uint("count")
 
-	return runN(input, count, func(tid uint, item string) error {
+	errs := runN(input, count, func(tid uint, item string) error {
 		args := []string{}
 		for _, arg := range ctx.Args() {
 			args = append(args, format(arg, tid, item))
@@ -215,6 +227,8 @@ func execCommand(ctx *cli.Context) error {
 
 		return nil
 	})
+
+	return processErrors(errs)
 }
 
 func sshCommand(ctx *cli.Context) error {
@@ -287,7 +301,7 @@ func sshCommand(ctx *cli.Context) error {
 
 	count := ctx.Uint("count")
 
-	return runN(input, count*uint(len(hosts)), func(tid uint, item string) error {
+	errs := runN(input, count*uint(len(hosts)), func(tid uint, item string) error {
 		// Connect to the remote server and perform the SSH handshake.
 		host := hosts[tid/count]
 		if !strings.Contains(host, ":") {
@@ -320,6 +334,12 @@ func sshCommand(ctx *cli.Context) error {
 			go io.Copy(os.Stdout, errPipe)
 		}
 
-		return s.Run(format(strings.Join(args, " "), tid, item))
+		if err := s.Run(format(strings.Join(args, " "), tid, item)); err != nil {
+			return errors.Wrapf(err, "executing %v on %v", args, host)
+		}
+
+		return nil
 	})
+
+	return processErrors(errs)
 }
