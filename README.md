@@ -5,10 +5,10 @@ multi is a small tool for making many ssh connections or local executors at once
 It is very fast. It is a much simpler version of GNU parallel with the
 additional thread-based (not process-based) ssh functionality.
 
-You can pass two formats to each command:
+You can pass two formats to each command, as well as `%%` to escape:
 
-%t - the thread id (unique id of each thread)
-%i - the item if -i was enabled, this will be a unique line from stdin.
+* `%t` - the thread id (unique id of each thread)
+* `%i` - the item if -i was enabled, this will be a unique line from stdin.
 
 No attempt is made to guarantee thread/item uniformity; runs may change thread
 ids for items between invocations.
