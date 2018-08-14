@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -94,6 +95,10 @@ func main() {
 					Name:  "no-agent, n",
 					Usage: "Do not attempt to use a ssh-agent",
 				},
+				cli.BoolFlag{
+					Name:  "no-prefix, r",
+					Usage: "Do not prefix output with IP information",
+				},
 			}, commonFlags...),
 		},
 		cli.Command{
@@ -109,6 +114,14 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, errors.Wrap(err, "runtime error (try --help)").Error()+"\n")
 		os.Exit(1)
+	}
+}
+
+func prefixCopy(host string, w io.Writer, r io.Reader) {
+	s := bufio.NewScanner(r)
+	s.Split(bufio.ScanLines)
+	for s.Scan() {
+		fmt.Fprintf(w, "[%v] %s\n", host, s.Text())
 	}
 }
 
@@ -354,8 +367,13 @@ func sshCommand(ctx *cli.Context) error {
 				return errors.Wrap(err, "connecting to stderr")
 			}
 
-			go io.Copy(os.Stdout, outPipe)
-			go io.Copy(os.Stdout, errPipe)
+			if ctx.Bool("no-prefix") {
+				go io.Copy(os.Stdout, outPipe)
+				go io.Copy(os.Stderr, errPipe)
+			} else {
+				go prefixCopy(host, os.Stdout, outPipe)
+				go prefixCopy(host, os.Stderr, errPipe)
+			}
 		}
 
 		if err := s.Run(format(strings.Join(args, " "), tid, item)); err != nil {
