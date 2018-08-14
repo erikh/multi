@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
@@ -78,6 +79,11 @@ func main() {
 			Usage:     "Execute a command in parallel over ssh; the host list file is a newline-delimited list of host:port pairs (22 is default)",
 			Action:    sshCommand,
 			Flags: append([]cli.Flag{
+				cli.DurationFlag{
+					Name:  "timeout, t",
+					Usage: "Timeout for SSH connections",
+					Value: time.Minute,
+				},
 				cli.StringFlag{
 					Name:  "username, u",
 					Usage: "Username to connect as",
@@ -334,6 +340,7 @@ func sshCommand(ctx *cli.Context) error {
 		// FIXME I'm too lazy to fix this and I don't really need it. -erikh
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Auth:            auths,
+		Timeout:         ctx.Duration("timeout"),
 	}
 
 	count := ctx.Uint("count")
