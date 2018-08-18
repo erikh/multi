@@ -204,17 +204,22 @@ func format(fmtstr string, tid uint, item string) string {
 }
 
 func readLines(f *os.File) ([]string, error) {
-	content, err := ioutil.ReadAll(f)
+	buf := bufio.NewScanner(f)
+	input := []string{}
+
+	for buf.Scan() {
+		input = append(input, strings.TrimSpace(buf.Text()))
+	}
+
+	leftOver, err := ioutil.ReadAll(f)
 	if err != nil {
-		return nil, errors.Wrap(err, "reading i/o")
+		return nil, err
 	}
 
-	input := strings.Split(string(content), "\n")
-
-	// catch trailing newline
-	if input[len(input)-1] == "" {
-		input = input[:len(input)-1]
+	if len(leftOver) > 0 {
+		input = append(input, strings.TrimSpace(string(leftOver)))
 	}
+
 	return input, nil
 }
 
@@ -227,8 +232,9 @@ func execCommand(ctx *cli.Context) error {
 
 	if ctx.Bool("input") {
 		var err error
-		if input, err = readLines(os.Stdin); err != nil {
-			return errors.Wrap(err, "could not read from stdin")
+		input, err = readLines(os.Stdin)
+		if err != nil {
+			return errors.Wrap(err, "reading input")
 		}
 	}
 
@@ -289,15 +295,16 @@ func sshCommand(ctx *cli.Context) error {
 
 	hosts, err := readLines(f)
 	if err != nil {
-		errors.Wrap(err, "could not read hosts file")
+		return errors.Wrap(err, "reading hosts")
 	}
 
 	var input []string
 
 	if ctx.Bool("input") {
 		var err error
-		if input, err = readLines(os.Stdin); err != nil {
-			return errors.Wrap(err, "while reading from stdin")
+		input, err = readLines(os.Stdin)
+		if err != nil {
+			return errors.Wrap(err, "reading input")
 		}
 	}
 
