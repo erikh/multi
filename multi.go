@@ -67,6 +67,7 @@ var commonFlags = []cli.Flag{
 func main() {
 	app := cli.NewApp()
 
+	app.Usage = "Execute many commands in parallel"
 	app.Author = "Erik Hollensbe <erik@hollensbe.org>"
 	app.Description = Description
 	app.Version = Version
@@ -369,32 +370,42 @@ func sshCommand(ctx *cli.Context) error {
 		if err != nil {
 			return errors.Wrap(err, "establishing session")
 		}
+		defer s.Close()
 
-		if !ctx.Bool("quiet") {
-			outPipe, err := s.StdoutPipe()
+		var (
+			outPipe, errPipe io.Reader
+			doCopy           = !ctx.Bool("quiet")
+		)
+
+		if doCopy {
+			var err error
+
+			outPipe, err = s.StdoutPipe()
 			if err != nil {
 				return errors.Wrap(err, "connecting to stdout")
 			}
 
-			errPipe, err := s.StderrPipe()
+			errPipe, err = s.StderrPipe()
 			if err != nil {
 				return errors.Wrap(err, "connecting to stderr")
 			}
-
-			if ctx.Bool("no-prefix") {
-				go io.Copy(os.Stdout, outPipe)
-				go io.Copy(os.Stderr, errPipe)
-			} else {
-				go prefixCopy(host, os.Stdout, outPipe)
-				go prefixCopy(host, os.Stderr, errPipe)
-			}
 		}
 
-		if err := s.Run(format(strings.Join(args, " "), tid, item)); err != nil {
+		if err := s.Start(format(strings.Join(args, " "), tid, item)); err != nil {
 			return errors.Wrapf(err, "executing %v on %v", args, host)
 		}
 
-		return nil
+		if doCopy {
+			if ctx.Bool("no-prefix") {
+				go io.Copy(os.Stderr, errPipe)
+				io.Copy(os.Stdout, outPipe)
+			} else {
+				go prefixCopy(host, os.Stderr, errPipe)
+				prefixCopy(host, os.Stdout, outPipe)
+			}
+		}
+
+		return s.Wait()
 	})
 
 	return processErrors(errs)
