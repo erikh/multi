@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -80,6 +81,10 @@ func main() {
 			Usage:     "Execute a command in parallel over ssh; the host list file is a newline-delimited list of host:port pairs (22 is default)",
 			Action:    sshCommand,
 			Flags: append([]cli.Flag{
+				cli.BoolFlag{
+					Name:  "pty, y",
+					Usage: "Use a pty for connections",
+				},
 				cli.DurationFlag{
 					Name:  "timeout, t",
 					Usage: "Timeout for SSH connections",
@@ -105,6 +110,10 @@ func main() {
 				cli.BoolFlag{
 					Name:  "no-prefix, r",
 					Usage: "Do not prefix output with IP information",
+				},
+				cli.StringFlag{
+					Name:  "filename, f",
+					Usage: "Provide a file's contents to be passed on stdin",
 				},
 			}, commonFlags...),
 		},
@@ -191,6 +200,8 @@ func format(fmtstr string, tid uint, item string) string {
 					retval += fmt.Sprintf("%d", tid)
 				case 'i':
 					retval += item
+				default:
+					retval += "%" + item
 				}
 
 				lastPercent = false
@@ -353,6 +364,15 @@ func sshCommand(ctx *cli.Context) error {
 
 	count := ctx.Uint("count")
 
+	var content []byte
+	if ctx.String("filename") != "" {
+		var err error
+		content, err = ioutil.ReadFile(ctx.String("filename"))
+		if err != nil {
+			return errors.Wrap(err, "reading stdin file")
+		}
+	}
+
 	errs := runN(input, count*uint(len(hosts)), func(tid uint, item string) error {
 		// Connect to the remote server and perform the SSH handshake.
 		host := hosts[tid/count]
@@ -371,6 +391,21 @@ func sshCommand(ctx *cli.Context) error {
 			return errors.Wrap(err, "establishing session")
 		}
 		defer s.Close()
+
+		if ctx.Bool("pty") {
+			if err := s.RequestPty("vt100", 80, 25, ssh.TerminalModes{}); err != nil {
+				return errors.Wrap(err, "requesting pty")
+			}
+		}
+
+		if content != nil {
+			inPipe, err := s.StdinPipe()
+			if err != nil {
+				return errors.Wrap(err, "setting up stdin")
+			}
+
+			go io.Copy(inPipe, bytes.NewBuffer(content))
+		}
 
 		var (
 			outPipe, errPipe io.Reader
